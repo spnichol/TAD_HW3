@@ -1,0 +1,687 @@
+---
+title: "Homework 3"
+author: "Steven Nichols"
+output:
+  html_document: default
+  html_notebook: default
+---
+### Question 1, Part A
+```{r, message=FALSE, warning=FALSE}
+
+library(quanteda)
+library(quantedaData)
+library(lsa)
+library(NLP)
+library(tm)
+library(RTextTools)
+library(tidytext)
+library(topicmodels)
+library(ldatuning)
+library(stringi)
+library(parallel)
+setwd("/home/spnichol/grive/1. MOT/1) Spring 2017/1) Text_as_Data/Assignments/Assignment_3/")
+#call news corpus 
+news_corp = data_corpus_immigrationnews
+#create table of count of texts by paper
+news_count.df = aggregate(texts ~ paperName, data=as.data.frame(news_corp$documents), FUN=length)
+#place in descending order 
+news_count.df = news_count.df[with(news_count.df, order(news_count.df$texts, decreasing=TRUE)),]
+top_four = news_count.df[1:4, 1]
+
+#create corpus with just desired documents
+corp = corpus_subset(news_corp, subset=news_corp$documents$paperName %in% top_four, select=c(paperName, id, day))
+
+```
+
+### Question 1, Part A - Answer 
+
+```{r, message=FALSE, warning=FALSE}
+#table
+news_count.df
+#top four newspapers 
+top_four 
+```
+
+### Question 1, Part B
+
+```{r, message=FALSE, warning=FALSE}
+
+#load stopwords 
+
+load("custom_stopwords.RData")
+#create dfm 
+news_dfm <- dfm(tokenize(corp, remove_punct=TRUE), tolower=TRUE, remove=custom_stopwords)
+#remove wors with frequency count of less than 30 and doc frequency of less than 20 
+news_dfm <- dfm_trim(news_dfm, min_count=30, min_docfreq=20)
+
+```
+
+### Question 1, Part B - Answer 
+
+```{r, message=FALSE, warning=FALSE}
+#print number of documents
+ndoc(news_dfm)
+#print number of tokens
+sum(ntoken(news_dfm))
+```
+
+
+### Question 1, Part C - Answer
+```{r, message=FALSE, warning=FALSE}
+
+#The choice of removing very rare words from a DFM on which you plan to fit a topic model depends in large part on the length of the corpus and the complexity of the data. However, I would generally argue in favor of removing rare tokens. Because you want to create a model with a limited number of interpretable topics, doing away with very rare words would allow you to avoid junk topics and focus on only the most salient issues in your data. If a word occurrs less than 20 times in a corpus of millions of words, and it is not a misspelling, it is unlikely to have much impact on a final topic model with five or ten topics. 
+
+```
+### Question 1, Part D 
+
+```{r, message=FALSE, warning=FALSE}
+k <- 30 
+TM<-LDA(news_dfm, k = k, method = "Gibbs", num_iter=3000,  control = list(seed = 11012))
+
+```
+
+
+
+### Question 1, Part E
+```{r, message=FALSE, warning=FALSE}
+
+
+#create matrix with top 10 words per topic 
+library(dplyr)
+news_tops <- tidy(TM, matrix = "beta") 
+news_tops <- news_tops %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+#save gamma weights to var 
+doc_topics<-TM@gamma
+# Transpose the data so that the days are columns
+doc_topics <- t(doc_topics)
+# find largest value 
+max<-apply(doc_topics, 2, which.max)
+#create "second highest" function for later use 
+which.max2<-function(x){
+  which(x == sort(x,partial=(k-1))[k-1])
+}
+#apply function 
+max2<- apply(doc_topics, 2, which.max2)
+max2<-sapply(max2, max)
+#sort topics by number of documents and take five highest 
+toptops <- sort(table(max),decreasing=TRUE)[1:5]
+#subset original topic/word matrix for just top5
+top5 <- news_tops[news_tops$topic %in% names(toptops) ,]
+
+
+```
+
+### Question 1, Part E - Answer
+
+```{r, message=FALSE, warning=FALSE}
+
+#top ten terms
+get_terms(TM, k=10)
+#assigning names to top5 topics
+topic <- top5$topic
+
+topic[topic == 5] <- "immigration"
+#This is clearly related to the debate around immigration and brexit, given the high weights for the word migration, figures, number, UK, countries and EU.
+topic[topic == 6] <- "labor_party"
+#Because the three strongest terms in this topic are "labor", "party" and "miliband", I imagine this topic is about Miliband resigniing as the leader of the labor party. 
+topic[topic == 9] <- "brexit"
+#I chose "brexit" for this topic, as the terms with the largest weights were UKIP (Independence Party), Campaign and Farage. Since Nigel Farage was one of the biggest advocates of the "Brexit" "campaign", and the word European also appears, it seems very likely this topic is indeed about the campaign to exit the EU. 
+topic[topic == 12] <- "employment"
+#This topic seems to be probably an extension of the Brexit topic, but concentrating on employment and creating jobs for "British" workers, since "british", "workers", "labor", and "foreign" are some of the top weighted terms.
+topic[topic == 15] <- "entertainment"
+#It's clear to me by the relatively even distribution of categories of entertainment, like book, story, film, play and music, that these articles are taken from the entertainment sections of these newspapers.
+
+
+top5$topic_name <- topic
+```
+
+###Question 1, Part F - Answer
+
+```{r, message=FALSE, warning=FALSE}
+library(ggplot2)
+
+#create general dataframe 
+top2<-data.frame(id =corp$documents$id, paper =  corp$documents$paperName, day =corp$documents$day, max = max, max2 = max2)
+#subset just for guardian 
+guard <- top2[top2$paper == "guardian" ,]
+#order by day 
+guard$day <- as.numeric(guard$day)
+guard <- guard[with(guard, order(guard$day, decreasing=FALSE)) ,]
+#plot Guardian terms 
+z<-ggplot(guard, aes(x=day, y=max, pch="First")) 
+
+z + geom_point(aes(x=day, y=max2, pch="Second") ) +theme_bw() + 
+  ylab("Topic Number") + ggtitle("Gaurdian: Top News Topics per Day") + geom_point() + xlab(NULL) + 
+  scale_shape_manual(values=c(19, 1), name = "Topic Rank") 
+
+#repeat process for Telegraph 
+
+tele <- top2[top2$paper == "telegraph" ,]
+
+tele$day <- as.numeric(tele$day)
+tele <- tele[with(tele, order(tele$day, decreasing=FALSE)) ,]
+y<-ggplot(tele, aes(x=day, y=max, pch="First")) 
+
+y + geom_point(aes(x=day, y=max2, pch="Second") ) +theme_bw() + 
+  ylab("Topic Number") + ggtitle("Telegraph: Top News Topics per Day") + geom_point() + xlab(NULL) + 
+  scale_shape_manual(values=c(19, 1), name = "Topic Rank") 
+
+
+```
+
+###Question 1, Part G
+
+```{r, message=FALSE, warning=FALSE}
+#create matrix with posterior probabilities by topic 
+lda.inf <- posterior(TM, news_dfm)
+inf.df <- data.frame(lda.inf$topics)
+#fix dataframe names 
+names(inf.df) <- seq(1:ncol(inf.df))
+#subset for just top 5 topics 
+inf.df<- inf.df[, names(inf.df) %in% unique(top5$topic)]
+inf.df$paper <- top2$paper
+#get appropriate counts 
+agginf <- aggregate(cbind(inf.df$`5`, inf.df$`6`, inf.df$`9`, inf.df$`12`, inf.df$`5`) ~ paper, data=inf.df, FUN=mean)
+names(agginf)[2:6] <- unique(top5$topic_name)
+
+```
+
+###Question 1, Part G - Answer
+```{r, message=FALSE, warning=FALSE}
+#The results below show that the Telegraph seems to have the highest proportion of articles related to the labour party and immigration in the UK. On the Brexit topic, the Guardian had the largest proportion of topics, while the Telegraph returned to dominate both the "employment" and "entertainment" topics. 
+
+agginf
+
+```
+
+###Question 2, Part A - Answer 
+
+```{r, message=FALSE, warning=FALSE}
+
+k <- 30 
+news_tm<-LDA(news_dfm, k = k, method = "Gibbs", num_iter=3000,  control = list(seed = 11211)) 
+
+```
+
+###Question 2, Part B 
+
+```{r, message=FALSE, warning=FALSE}
+
+#For each topic in the new model, find the topic that is the closest match in the original
+#run in terms of cosine similarity of the topic distribution over words.
+
+library(proxy)
+
+#get term weights for new and old models 
+newwords <- as.matrix(news_tm@beta)
+oldwords <- as.matrix(TM@beta)
+
+#calculate cosine similarity between weights for each topic and term 
+automethod <- simil(newwords, oldwords, method="cosine", diag=TRUE)
+automethod <- as.matrix(automethod)
+co_sim<-as.data.frame.matrix(automethod)
+#find closest match
+names(co_sim) <- seq(1:ncol(co_sim))
+rownames(co_sim) <- seq(1:nrow(co_sim))
+co_sim$closest_match <- colnames(co_sim)[apply(co_sim,1, which.max)]
+#subset just matches for later use 
+just_matches <- data.frame(cbind(seq(1:nrow(co_sim)), co_sim$closest_match))
+names(just_matches) <- c("Original", "Match")
+
+```
+
+###Question 2, Part B - Answer 
+```{r, message=FALSE, warning=FALSE}
+
+head(co_sim)
+
+```
+
+###Question 2, Part C
+```{r, message=FALSE, warning=FALSE}
+
+#Calculate the average number of words in the top ten shared by each matched topic pair.
+
+#get top terms for first LDA model 
+TM_tops <- tidy(TM, matrix = "beta") 
+TM_terms <- TM_tops %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+#repeat process for second LDA model 
+news_tops <- tidy(news_tm, matrix = "beta") 
+news_terms <- news_tops %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+TM_terms <- data.frame(TM_terms)
+news_terms <- data.frame(news_terms)
+#calculate average number of Top Ten shared terms 
+for (i in 1:nrow(just_matches)) {
+  word = as.numeric(just_matches$Original[i])
+  orig_words = TM_terms[TM_terms['topic'] == word,]
+  orig_words = orig_words$term
+  new_word = as.numeric(just_matches$Match[i])
+  match_words = news_terms[news_terms['topic'] == new_word ,]
+  match_words = match_words$term
+  num_matches = length(intersect(orig_words, match_words))
+  just_matches$Avg_Shared[i] = num_matches/10 * 100 
+  
+}
+
+
+```
+
+###Question 2, Part C - Answer 
+```{r, message=FALSE, warning=FALSE}
+
+head(just_matches)
+```
+
+###Question 2, Part D
+
+```{r, message=FALSE, warning=FALSE}
+
+#Now run two more models, but this time, use only 5 topics. Again, find the average
+# number of words in the top ten shared by each matched topic pair. How stable are the
+# models with 5 topics compared to the models with 30 topics?
+
+#repeat process with just 5 topics 
+k <- 5
+
+TM<-LDA(news_dfm, k = k, method = "Gibbs", num_iter=3000,  control = list(seed = 11012)) 
+
+news_tm<-LDA(news_dfm, k = k, method = "Gibbs", num_iter=3000,  control = list(seed = 11211)) 
+
+
+```
+
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+
+#get term weights for new and old models 
+newwords <- as.matrix(news_tm@beta)
+oldwords <- as.matrix(TM@beta)
+
+#calculate cosine similarity between weights for each topic and term 
+automethod <- simil(newwords, oldwords, method="cosine", diag=TRUE)
+automethod <- as.matrix(automethod)
+co_sim<-as.data.frame.matrix(automethod)
+#find closest match
+names(co_sim) <- seq(1:ncol(co_sim))
+rownames(co_sim) <- seq(1:nrow(co_sim))
+co_sim$closest_match <- colnames(co_sim)[apply(co_sim,1, which.max)]
+#subset just matches for later use 
+just_matches <- data.frame(cbind(seq(1:nrow(co_sim)), co_sim$closest_match))
+names(just_matches) <- c("Original", "Match")
+
+#get top terms for first LDA model 
+TM_tops <- tidy(TM, matrix = "beta") 
+TM_terms <- TM_tops %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+#repeat process for second LDA model 
+news_tops <- tidy(news_tm, matrix = "beta") 
+news_terms <- news_tops %>%
+  group_by(topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)
+TM_terms <- data.frame(TM_terms)
+news_terms <- data.frame(news_terms)
+#calculate average number of Top Ten shared terms 
+just_matches$Avg_Shared
+for (i in 1:nrow(just_matches)) {
+  word = as.numeric(just_matches$Original[i])
+  orig_words = TM_terms[TM_terms['topic'] == word,]
+  orig_words = orig_words$term
+  new_word = as.numeric(just_matches$Match[i])
+  match_words = news_terms[news_terms['topic'] == new_word ,]
+  match_words = match_words$term
+  num_matches = length(intersect(orig_words, match_words))
+  just_matches$Avg_Shared[i] = num_matches/10 * 100 
+  
+}
+
+
+```
+
+
+###Question 2, Part D - Answer
+
+
+```{r, message=FALSE, warning=FALSE}
+#While the topic models seem to be much more stable when specifying a small number of topics, with 3/5 at least sharing some terms, it still seems fairly unreliable given the fact that there are still two topics that share zero of the most common terms, despite having the highest cosine similarity. 
+
+head(just_matches)
+```
+
+
+###Question 3, Part A
+
+```{r, message=FALSE, warning=FALSE}
+
+# Using only articles from the Guardian and Telegraph, construct a numeric date variable
+# from the “day” variable in the immigration news corpus. Use what preprocessing you
+# believe to be appropriate for this problem.
+
+library(stm)
+#subset corpus for just telegraph and guardian
+stm_corp <- corpus_subset(news_corp, subset=news_corp$documents$paperName %in% c("guardian", "telegraph"))
+stm_df <- as.data.frame(cbind(stm_corp$documents$texts, stm_corp$documents$day, stm_corp$documents$paperName))
+#create numeric variable for "day" as doc variables are not coming in the correct order 
+library(stringr)
+names(stm_df) <- c("texts", "day", "paperName")
+stm_df$day <- str_extract_all(stm_df$texts, '\"[0-9]{1,3}\\"\\}')
+stm_df$day <- as.numeric(str_extract_all(stm_df$day, '([0-9]{1,3})'))
+stm_corp$documents$day <- as.numeric(stm_corp$documents$day)
+#create dfm 
+mygroups = c(stm_corp$documents$paperName, stm_corp$documents$day)
+stm_dfm <- dfm(tokenize(stm_corp, remove_punct=TRUE), tolower=TRUE, remove=custom_stopwords, verbose=TRUE)
+stm_dfm <- dfm_trim(stm_dfm, min_count=30, min_docfreq=10)
+
+```
+
+###Question 3, Part A - Answer
+
+```{r, message=FALSE, warning=FALSE}
+
+head(stm_df$day)
+
+```
+
+###Question 3, Part B 
+
+```{r, message=FALSE, warning=FALSE, include=FALSE}
+
+# Fit an STM model where the topic content varies according to this binary variable, and
+# where the prevalence varies according to both this binary variable and the spline of the
+# 2date variable you’ve created. Be sure to use the spectral initialization and set k=0 which
+# will allow the STM function to automatically select a number of topics using the spec-
+# tral learning method. Keep in mind that this function is computationally demanding,
+# so start with the minimum threshold document frequency threshold set to 10; if your
+# computer takes an unreasonably long time to fit the STM model with this threshold,
+# you can raise it to as high as 30.
+
+
+stm_df$paperName <- as.factor(stm_df$paperName)
+stm_df$day <- as.numeric(stm_df$day)
+stm1 <- stm(stm_dfm, K=0, init.type='Spectral', seed=100, prevalence =~paperName + s(day), data=stm_df)
+
+
+```
+
+###Question 3, Part C
+
+
+```{r, message=FALSE, warning=FALSE}
+
+# Identify and name each of the 5 topics that occur in the highest proportion of documents
+# using the following code: 1
+
+#plot topic proportions using summary function 
+plot(stm1, type="summary",  n=5, text.cex=.7)
+
+#confirm results for good measure 
+b4 <- as.data.frame(stm1$theta)
+b4 <- as.data.frame(t(b4))
+max<-apply(b4, 2, which.max)
+toptops <- sort(table(max),decreasing=TRUE)[1:5]
+top5 <- news_tops[news_tops$topic %in% names(toptops) ,]
+tops <- as.data.frame(stm1$beta)
+tops <- as.data.frame(t(tops))
+rownames(tops) <- stm1$vocab
+names(tops) <- seq(1:nrow(b4))
+top5 <- tops[, names(tops) %in% names(toptops)]
+topterms = data.frame(rank = seq(1:10))
+for (i in 1:length(names(top5))){
+  topvec = top5[order(top5[i],decreasing=T)[1:10],]
+  terms = rownames(topvec)
+  thisterm = names(top5)[i]
+  topterms[thisterm] = terms 
+
+}
+
+#name terms 
+names(topterms)[2] <- "media"
+names(topterms)[3] <- "brexit"
+names(topterms)[4] <- "election"
+names(topterms)[5] <- "farage"
+names(topterms)[6] <- "labor"
+```
+
+###Question 3, Part C - Answer
+
+```{r, message=FALSE, warning=FALSE}
+head(topterms)
+```
+
+###Question 4, Part D
+
+```{r, message=FALSE, warning=FALSE}
+
+# Using the visualization commands in the stm package, discuss one of these top 5 topics.
+# How does the content vary with the paper discussing that topic? How does the prevalence
+# change over time?
+
+
+#create variable with actual date out of curiosity 
+stm_df$texts <- as.character(stm_df$texts)
+stm_df$Date <- str_extract_all(stm_df$texts, '[0-9]{1,2}\\s[a-zA-Z]{3,12}\\s[0-9]{4}')
+for(i in 1:nrow(stm_df)) {
+  stm_df$Date[i] <- stm_df$Date[[i]][[1]]
+}
+
+#choose topic 1 - elections/brexit
+#look at difference between newspapers 
+paper<- estimateEffect(c(4) ~ paperName, stm1, meta=stm_df)
+#Here you can see that, compared to the Telegraph, the guardian seemed to have covered the "election" 
+#topic slightly less than the Telegraph, with a negative coefficient of -0.02
+plot(paper, "paperName", model=stm1,
+     method="difference",cov.value1="guardian",cov.value2="telegraph")
+
+#look at evolution over time 
+time <- estimateEffect(c(4) ~ day, stm1, meta=stm_df)
+#It's clear that this topic does indeed correspond to the 2014 British elections, as you see a steady increase in topic
+#prevalence from the begining of the time period (around Feb. 2014) up until the day of the election in late May 2014. 
+#If you compare this with a Google Trend search for "UKIP", you can see that it corresponds quite nicely. 
+plot(time, covariate="day", model=stm1, method="continuous", xlab="Days")
+
+# Plots the distribution of topics over time
+
+
+```
+
+###Question 4, Part A
+
+```{r, message=FALSE, warning=FALSE}
+#First, create a corpus that is the subset of the data corpus SOTU that contains only
+#speeches that occurred after 1970.
+
+sotu <- data_corpus_SOTU
+sotu_corp <- corpus_subset(sotu, subset=as.numeric(substring(sotu$documents$Date, 1, 4)) > 1970)
+
+```
+
+###Question 4, Part A - Answer 
+
+```{r, message=FALSE, warning=FALSE}
+
+summary(sotu_corp)
+
+```
+
+###Question 4, Part B
+```{r, message=FALSE, warning=FALSE}
+
+#Wordfish requires that we select anchors that lie at the extremes of the latent dimension;
+#in this case, we are looking to estimate the latent left-right ideological dimension. Use
+#Obama’s 2012 speech and Ronald Regan’s 1981 speech as our anchors for a Wordfish
+#model.
+
+#create dummy df to get row number of required docs 
+dummy_idx <- data.frame(sotu_corp$documents)
+#get index for obama speech
+bo <- which(dummy_idx$President == "Obama" & substring(dummy_idx$Date, 1, 4) == "2012")
+#repeat for Reagan 
+rr <- which(dummy_idx$President == "Reagan" & substring(dummy_idx$Date, 1, 4) == "1981")
+#create DFM
+sotu_dfm <- dfm(tokenize(sotu_corp, remove_punct=TRUE), tolower=TRUE, remove=stopwords("english"))
+#create wordfish model with obama and reagan speeches as anchors 
+sotu_wf <- textmodel_wordfish(sotu_dfm, dir=c(2, 33))
+
+```
+
+###Question 4, Part B - Answer
+```{r, message=FALSE, warning=FALSE}
+sotu_wf
+```
+
+###Question 4, Part C
+```{r, message=FALSE, warning=FALSE}
+#Which of the documents is the most left wing? Which is the most right-wing? Are these
+#results surprising? Why or why not?
+
+wf_df <- data.frame(cbind(sotu_wf@theta, dummy_idx$President))
+names(wf_df) <- c("Result", "President")
+wf_df$Date <- as.numeric(substring(dummy_idx$Date, 1, 4))
+wf_df$Result <- as.numeric(as.character(wf_df$Result))
+
+```
+
+###Question 4, Part C - Answer
+```{r, message=FALSE, warning=FALSE}
+#select score furthest to the left
+most_left <- wf_df[which.max(wf_df$Result),]
+most_left
+#select score furthest to the right
+most_right <- wf_df[which.min(wf_df$Result) ,]
+most_right
+
+#According to wordfish, Clinton's 1995 SOTU is the most left-wing speech, while Carter's 1981 SOTU is the most right-wing speech. These results are surprising in so for as they do not reflect these politician's actual positions. In reality, they are not surprising, as it is likely that the model is not looking so much at *how* they are speaking but *what* they are speaking about. Since those topics will be based more on time than party membership, it is not surprising that Carter is more similar to Reagan than Obama. 
+
+```
+
+###Question 4, Part D
+```{r, message=FALSE, warning=FALSE}
+#Re-create the “guitar plot” from Recitation 10. Describe the parameters estimated by
+#Wordfish that lie on the axes of the plot.
+
+words<-sotu_wf@psi
+names(words) <- sotu_wf@features
+sort(words)[1:50]
+sort(words, decreasing=T)[1:50]
+
+# Guitar plot
+weights<-sotu_wf@beta
+
+```
+
+###Question 4, Part D - Answer
+```{r, message=FALSE, warning=FALSE}
+plot(weights, words)
+
+#On the Y axis we have psi, which is the estimtaed word fixed effets - a metric that shows how common/rare a word is in general. The X axis shows marginal word weights, whih reflects their ability to discriminate between our classes. 
+
+```
+
+###Question 4, Part E 
+```{r, message=FALSE, warning=FALSE}
+# Optional: Estimate a linear regression with the Wordfish score as the dependent vari-
+# able and binary variable indicating whether or not a President was a Democrat as an
+# independent variable. Include a binary control variable for each president. If we use
+# being a Democrat as a proxy for liberal ideology, how well did our Wordfish model do
+# at capturing latent ideology? 
+
+#create vector with party membership for each president
+wf_df$Party <- sotu_corp$documents$party
+wf_df$Party <- ifelse(wf_df$Party == "Democratic", 1, 0)
+
+fit <- lm(Result ~ Party, data=wf_df)
+
+
+```
+
+###Question 4, Part E - Answer
+
+```{r, message=FALSE, warning=FALSE}
+#Given the relationship is not statistically significant, it does not seem that official party affiliation has a very meaningful association with wordfish score. 
+
+summary(fit)
+
+```
+
+###Question 5, Part A
+```{r, message=FALSE, warning=FALSE}
+# Create a corpus from the treaties using the readtext command. For each of the words,
+# “Seminole”, “the”, and “removal” use the bursty function to visualize the burst pe-
+# riod(s) and levels. Also, for each of the plots include a brief interpretation about what
+# the timing and level of the burst indicates about groups and events associated with the
+# treaties. Hint: Look at the events and parties affected by the Indian Removal Act of
+# 1830. You can use the following synopsis as a reference: Indian Treaties and the Removal
+# Act of 1830
+library(bursts)
+library(readtext)
+
+
+bursty<-function(word="Seminole",DTM, date){
+  word.vec <- DTM[,which(colnames(DTM) == word)]
+  if(length(word.vec) == 0){
+    print(word, " does not exist in this corpus.")
+  } else{
+    word.times <- c(0,which(as.vector(word.vec)>0))
+    kl <- kleinberg(word.times, gamma=.5)
+    kl$start <- date[kl$start+1]
+    kl$end <- date[kl$end]
+    max_level <- max(kl$level)
+    plot(c(kl$start[1], kl$end[1]), c(1,max_level),
+         type = "n", xlab = "Time", ylab = "Level", bty = "n",
+         xlim = c(kl$start[1], kl$end[1]), ylim = c(1, max_level),
+         yaxt = "n")
+    axis(2, at = 1:max_level)
+    for(i in 1:nrow(kl)){
+      if(kl$start[i] != kl$end[i]){
+        arrows(kl$start[i], kl$level[i], kl$end[i], kl$level[i], code = 3, angle = 90,
+               length = 0.05)
+      } else{
+        points(kl$start[i], kl$level[i])
+      }
+    }
+    print(kl)
+  }
+    #note deviation from standard defaults bec don't have that much data
+}
+
+#read in files
+treaties <- readtext("data//*.txt", docvarsfrom=c("filenames"))
+#read in dates
+date_df <- read.csv("https://raw.githubusercontent.com/pchest/Text_as_Data/4983b04f74268b02dc230aa7a19e129675c6f95c/treaties/UniverseCases.csv")
+#create corpus
+treat_corp <- corpus(treaties)
+#create numeric date variable 
+docvars(treat_corp)$date <-as.Date(as.character(date_df$Date[1:365]), "%m-%d-%Y")
+
+#create dfm
+treat_dfm <- dfm(treat_corp)
+
+```
+
+###Question 5, Part A - Answer
+
+```{r, message=FALSE, warning=FALSE}
+#The word "seminole" is bursty around the year 1830, as this was the time of the signing of the Indian Removal Act of 1830, which expelled Native Americans from the US South. Since the Seminoles were a tribe located in the SW, it makes sense that their name would be bursty around the time of this act's passage.
+bursty("seminole",treat_dfm, treat_corp$documents$date)
+#The word "the" is not bursty at all, as it is a functional word, it appears quite consistently throughout all the texts. 
+bursty("the",treat_dfm, treat_corp$documents$date)
+#Because not all tribes went along with the act of 1830, there were subsequent wars with the Seminole Indians in the early 1840s and mid-to-late 1850s. Because these surely ended with treaties talking about the "removal" of Indians, this term is bursty again from 1840 through 1860. 
+bursty("removal",treat_dfm, treat_corp$documents$date)
+
+```
