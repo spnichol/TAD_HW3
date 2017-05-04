@@ -534,9 +534,9 @@ bo <- which(dummy_idx$President == "Obama" & substring(dummy_idx$Date, 1, 4) == 
 #repeat for Reagan 
 rr <- which(dummy_idx$President == "Reagan" & substring(dummy_idx$Date, 1, 4) == "1981")
 #create DFM
-sotu_dfm <- dfm(tokenize(sotu_corp, remove_punct=TRUE), tolower=TRUE, remove=stopwords("english"))
+sotu_dfm <- dfm(sotu_corp, remove_punct=TRUE, tolower=TRUE, remove=stopwords("english"))
 #create wordfish model with obama and reagan speeches as anchors 
-sotu_wf <- textmodel_wordfish(sotu_dfm, dir=c(2, 33))
+sotu_wf <- textmodel_wordfish(sotu_dfm, dir=c(bo, rr))
 
 ```
 
